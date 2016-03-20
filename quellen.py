@@ -12,7 +12,13 @@ from pymongo import MongoClient
 
 from Levenshtein import ratio
 
-from backend import get_all_words, save_and_correct, save_corrected
+from backend import get_all_words, save_corrected, join_words, divide_word
+
+import logging
+logging.basicConfig(filename='flask_logger.log',level=logging.DEBUG)
+
+# Get an instance of a logger
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
@@ -28,6 +34,7 @@ mongo = con["quellen"]
 tironis = con['manu_tironis']
 
 WORDS = get_all_words()
+
 
 def is_greek(s):
     ''' Returns True if s is in greek'''
@@ -184,10 +191,11 @@ def scriptorium():
 
 @app.route('/tiro/<title>/<int:pagenumber>')
 def tiro(title, pagenumber):
-    needed_vals = {"title": 1, "pagenumber": 1, "notepad": 1, "image_url": 1}
+    needed_vals = {"_id": 1, "title": 1, "pagenumber": 1, "notepad": 1, "image_url": 1}
     # TODO - next page and prev page
     if pagenumber == 0:
-        page = tironis.lace_texts.find({"title": title}, needed_vals).sort("pagenumber",).limit(1)[0]
+        page = tironis.lace_texts.find(
+            {"title": title}, needed_vals).sort("pagenumber",).limit(1)[0]
 
     else:
         page = tironis.lace_texts.find_one(
@@ -196,12 +204,13 @@ def tiro(title, pagenumber):
     if not page:
         abort(404)
     if tironis.lace_texts.find_one(
-            {"title": title, "pagenumber": page["pagenumber"]-1}):
-        page["next_page"] = page["pagenumber"]-1
+            {"title": title, "pagenumber": page["pagenumber"] - 1}):
+        page["next_page"] = page["pagenumber"] - 1
     if tironis.lace_texts.find_one(
-            {"title": title, "pagenumber": page["pagenumber"]+1}):
-        page["prev_page"] = page["pagenumber"]+1
-    return render_template("tiro.html", page=page)
+            {"title": title, "pagenumber": page["pagenumber"] + 1}):
+        page["prev_page"] = page["pagenumber"] + 1
+    #return render_template("tiro.html", page=page)
+    return render_template("tiro2.html", page=page)
 
 # AJAX SECTION
 
@@ -211,7 +220,7 @@ def suggest():
     # Ajax - receive incorrect form, suggest correction''
     incorrect = unicode(request.args.get('word'))
     # WORDS = list(tironis.words.find({}, {"word": 1}))
-    suggestions = {correct: correct for correct in WORDS if ratio(incorrect, correct) > 0.65}
+    suggestions = {correct: correct for correct in WORDS if ratio(incorrect, correct) > 0.71}
     return jsonify(suggestions)
 
 '''
@@ -220,50 +229,61 @@ def suggest():
 # the form doesn't change, the only thing that changes is url
 # of the HTTP endpoint
 '''
-@app.route("/savecorrect")
-def savecorrect():
-    """
-    User clicked 'this word is correct'
-    Now we want to save the word to db
-    and check all docs for that word
-    and set them to correct=1
-    """
-    correct_word = request.args.get('word')
-    save_and_correct(correct_word)
-    return
 
 
-@app.route("/savesuggested")
-def savesuggested():
+@app.route("/update", methods=['POST'])
+def update():
     """
-    User takes suggested word
-    Now we want to save the word to db
-    and check all docs for that word
-    and set them to correct=1
+    here we deal with 2 user journeys:
+    1. User clicked 'this word is correct'
+    2. User clicked 'this word is NOT correct' AND picks suggested word
+    3. User clicked 'this word is NOT correct' AND corrected word manually
     """
-    suggested_word = request.args.get('word')
-    text = request.args.get('text')
-    node_id = request.args.get('node_id')
-    semantic = request.args.get('semantic')
-    save_corrected(suggested_word, text, node_id, semantic)
-    return
+    correct_word = request.form.get('correct_form')
+    page_id = request.form.get('page_id')
+    word_id = request.form.get('word_id')
 
-@app.route("/savecorrected")
-def savecorrected():
-    """
-    User corrects the word
-    Now we want to save the word to db
-    and check all docs for that word
-    and set them to correct=1
-    """
-    corrected_word = request.args.get('word')
-    # we don't need the author, unlikely it is that
-    # we will ever have two texts with the same title
-    text = request.args.get('text')
-    node_id = request.args.get('node_id')
-    page_number = request.args.get('page_number')
-    semantic = request.args.get('semantic')
-    save_corrected(corrected_word, text, page_number, node_id, semantic)
+    mess = "Received:{} {}, {}".format(correct_word.encode('utf-8'), page_id, word_id)
+    logger.info(mess)
+
+    save_corrected(correct_word, semantic, page_id, word_id)
+
+    return jsonify(result={'status':"OK"})
+
+
+@app.route("/divideorjoin")
+def divideorjoin():
+    '''
+    Two user stories:
+    1. User clicks: 'split that word'
+    2. User clicks: 'join that word with next one'
+    Flag 'action' will tell you which
+    '''
+    dikt = {}
+    dikt['page_id'] = request.args.get('page_id')
+    dikt['node_id'] = request.args.get('node_id')
+    dikt['word'] = request.args.get('word')
+    if request.args.get('action') == 'divide':
+        divide_word(dikt)
+    if request.args.get('action') == 'join':
+        # for mvp, we join word with the next one only
+        join_words(dikt)
+
+
+@app.route("/mark")
+def mark():
+    '''
+    Two user stories:
+    1. User clicks: 'this word is not correct' - we set corr to 0
+    2. User clicks: 'join that word with next one'
+    Flag 'action' will tell you which
+    '''
+    mark = request.args.get('mark')
+    doc_id = request.args.get('doc_id')
+    word_id = request.args.get('word_id')
+    mark(mark, word_id)
+
+
     return
 
 
@@ -277,7 +297,7 @@ def page_not_found(error):
     return render_template("404.html"), 404
 
 
-### HELPERS # SECTION ###
+### HELPERS # SECTION ### MOVE ME TO SEPARATE NAMEPSACE
 
 
 def querydistinct(querydict_1, querydict_2, distinct_value_1, distinct_value_2):
