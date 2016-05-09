@@ -1,21 +1,19 @@
-#!/usr/bin/python
-# -*- coding: utf-8 -*-
-
-from collections import defaultdict
-
+import logging
 from bson.objectid import ObjectId  # needed to find by _id
 from bson.errors import InvalidId
-
+from collections import defaultdict
+from datetime import datetime as dt
 from flask import Flask, request, jsonify, render_template, abort, Response
-
+from Levenshtein import ratio
 from pymongo import MongoClient
 
-from Levenshtein import ratio
+from db_access import get_all_words
+from join_divide import join_words, divide_word
+from mark import mark_save
+from update import save_corrected
 
-from backend import get_all_words, save_corrected, join_words, divide_word
-
-import logging
-logging.basicConfig(filename='flask_logger.log',level=logging.DEBUG)
+#logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+logging.basicConfig(filename='db_access_logger.log', level=logging.DEBUG)
 
 # Get an instance of a logger
 logger = logging.getLogger(__name__)
@@ -150,7 +148,6 @@ def flag():
 @app.route('/library')
 def library():
     ''' Return list of authors whose works we have'''
-
     authors = list(mongo.texts.find({}, {"author": 1, "title": 1}))
     return render_template("library.html", authors=authors)
 
@@ -158,7 +155,6 @@ def library():
 @app.route('/text/<author>/<title>')
 def text(author, title):
     ''' Returns single text'''
-
     text = mongo.texts.find_one({"author": author, "title": title})
     if not text:
         abort(404)
@@ -191,6 +187,7 @@ def scriptorium():
 
 @app.route('/tiro/<title>/<int:pagenumber>')
 def tiro(title, pagenumber):
+    # print "{}::{}".format(title, pagenumber)
     needed_vals = {"_id": 1, "title": 1, "pagenumber": 1, "notepad": 1, "image_url": 1}
     # TODO - next page and prev page
     if pagenumber == 0:
@@ -209,7 +206,7 @@ def tiro(title, pagenumber):
     if tironis.lace_texts.find_one(
             {"title": title, "pagenumber": page["pagenumber"] + 1}):
         page["prev_page"] = page["pagenumber"] + 1
-    #return render_template("tiro.html", page=page)
+    # return render_template("tiro.html", page=page)
     return render_template("tiro2.html", page=page)
 
 # AJAX SECTION
@@ -217,18 +214,21 @@ def tiro(title, pagenumber):
 
 @app.route("/suggest")
 def suggest():
-    # Ajax - receive incorrect form, suggest correction''
+    """ Ajax - receive incorrect form, suggest correction"""
     incorrect = unicode(request.args.get('word'))
-    # WORDS = list(tironis.words.find({}, {"word": 1}))
-    suggestions = {correct: correct for correct in WORDS if ratio(incorrect, correct) > 0.71}
-    return jsonify(suggestions)
+    vals = {}
+    for correct in WORDS:
+        ratjo = ratio(incorrect, correct)
+        if ratjo > 0.75:
+            vals[correct] = ratjo
+    #import pdb; pdb.set_trace()
+    if len(vals) > 5:
+        ratios = [v for v in reversed(sorted(vals.values()))][:5]
 
-'''
-# good idea:
-# in jquery we have one big form to be sent by GET to flask backend
-# the form doesn't change, the only thing that changes is url
-# of the HTTP endpoint
-'''
+        suggestions = {c: c for c, v in vals.iteritems() if v in ratios}
+    else:
+        suggestions = {c: c for c, v in vals.iteritems()}
+    return jsonify(suggestions)
 
 
 @app.route("/update", methods=['POST'])
@@ -242,49 +242,65 @@ def update():
     correct_word = request.form.get('correct_form')
     page_id = request.form.get('page_id')
     word_id = request.form.get('word_id')
-
+    # is_hand_corrected = request.form.get('word_id')
+    # mvp shows only suggestions - no chance to edit manually
+    is_hand_corrected = False
     mess = "Received:{} {}, {}".format(correct_word.encode('utf-8'), page_id, word_id)
     logger.info(mess)
+    save_corrected(correct_word, page_id, word_id, is_hand_corrected)
 
-    save_corrected(correct_word, semantic, page_id, word_id)
-
-    return jsonify(result={'status':"OK"})
+    return jsonify(result={'status': "OK"})
 
 
-@app.route("/divideorjoin")
+@app.route("/divideorjoin", methods=['POST'])
 def divideorjoin():
-    '''
+    """
     Two user stories:
     1. User clicks: 'split that word'
     2. User clicks: 'join that word with next one'
     Flag 'action' will tell you which
-    '''
-    dikt = {}
-    dikt['page_id'] = request.args.get('page_id')
-    dikt['node_id'] = request.args.get('node_id')
-    dikt['word'] = request.args.get('word')
+    """
+
+    dikt = {
+        'page_id': request.form.get('page_id'),
+        'word_id': request.form.get('word_id'),
+        'word': request.form.get('word')
+    }
+    mess = "Received:{} {}, {}".format(dikt['page_id'], dikt['word_id'], dikt['word'])
+    logger.info(mess)
     if request.args.get('action') == 'divide':
         divide_word(dikt)
-    if request.args.get('action') == 'join':
+    elif request.args.get('action') == 'join':
         # for mvp, we join word with the next one only
         join_words(dikt)
 
+    return jsonify(result={'status': "OK"})
 
-@app.route("/mark")
+
+@app.route("/mark", methods=['POST'])
 def mark():
     '''
     Two user stories:
-    1. User clicks: 'this word is not correct' - we set corr to 0
-    2. User clicks: 'join that word with next one'
-    Flag 'action' will tell you which
+    1. User clicks: 'this word is correct' - we set corr to 1
+    2. User clicks: 'this word is not correct' - we set corr to 0
+    Flag 'action' will tell you which way to go
     '''
-    mark = request.args.get('mark')
-    doc_id = request.args.get('doc_id')
-    word_id = request.args.get('word_id')
-    mark(mark, word_id)
-
-
-    return
+    mark = request.form.get('mark')
+    doc_id = request.form.get('page_id')
+    word_id = request.form.get('word_id')
+    # logger.info("{} - `mark` got :: args:{}-{}-{}".format(dt.now(), mark, doc_id, word_id))
+    print "{} - `mark` got :: args:{}-{}-{}".format(dt.now(), mark, doc_id, word_id)
+    try:
+        mark_save(mark, doc_id, word_id)
+        # print "{} - Success in `mark` :: args:{}-{}-{}".format(dt.now(), mark, doc_id, word_id)
+        logger.info(
+            "{} - Success in `mark` :: args:{}-{}-{}".format(dt.now(), mark, doc_id, word_id))
+        return jsonify(result={'status': "OK"})
+    except Exception as err:
+        # print "{} -Error in `mark` :: args:{}-{}-{}".format(dt.now(), mark, doc_id, word_id)
+        logger.error(
+            "{} -Error {} in `mark` :: args:{}-{}-{}".format(err, dt.now(), mark, doc_id, word_id))
+        return jsonify(result={'status': "ERROR"})
 
 
 # END MANU TIRONIS
@@ -297,7 +313,7 @@ def page_not_found(error):
     return render_template("404.html"), 404
 
 
-### HELPERS # SECTION ### MOVE ME TO SEPARATE NAMEPSACE
+# HELPERS # SECTION ### MOVE ME TO SEPARATE NAMEPSACE
 
 
 def querydistinct(querydict_1, querydict_2, distinct_value_1, distinct_value_2):
