@@ -4,21 +4,21 @@
 from bson.objectid import ObjectId
 from pymongo import MongoClient
 from deep_backend import is_marginalia, is_safe, clean_from_dots, replace_node
-from db_access import save_single_word, update_really_all_texts, update_documents_notepad
+from db_access import (save_single_word, update_really_all_texts,
+                       update_documents_notepad, run_best_guess)
 from mark import mark_as, add_pagination_class
 client = MongoClient()
 manu_tironis = client['manu_tironis']
 lace_texts = manu_tironis.lace_texts
 
 
-def save_corrected(correct_word, page_id, word_id, is_hand_corrected=False):
+def save_corrected(correct_word, page_id, word_id, is_hand_corrected):
     '''
     User story:
     1. User picked on of the words suggested to him
     2. User corrected text by hand
-    Because correcting by Hand comes later - now we hardcode it to False
+    Because correcting by Hand comes later - now it's hardcoded in quellen.py to False
     '''
-    # import pdb; pdb.set_trace()
     doc_id = ObjectId(page_id)
     correct_word = clean_from_dots(correct_word)
     if is_hand_corrected:
@@ -37,8 +37,6 @@ def save_corrected(correct_word, page_id, word_id, is_hand_corrected=False):
     notepad = record_to_correct['notepad']
     new_notepad = replace_node(notepad, correct_word, word_id=word_id)
     update_documents_notepad(doc_id, new_notepad)
-    # update_all_texts(corrected_word)
-    # at the end, save pair
-    # document = {"incorrect": text, "correct": correct_word}
-    # manu_tironis.corrections.insert(document)
+    # run me async
+    run_best_guess(correct_word, doc_id, word_id)
     return

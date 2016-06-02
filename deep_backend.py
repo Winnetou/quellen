@@ -44,6 +44,7 @@ def clean(word):
         word = word[1:]
     return word
 
+
 def replace_node(notepad, word, word_id=None):
     '''
     this function should be used in two situations:
@@ -62,14 +63,31 @@ def replace_node(notepad, word, word_id=None):
         all_nodes = soup.findAll("span", {"lang": "grc", "corr": "0"})
         nodes_to_replace = [n for n in all_nodes if clean(n.text) == word]
     for old_node in nodes_to_replace:
-        # node_id = old_node['id']
-        # new_node = soup.new_tag("span")
-        # new_node["id"] = node_id
-        # new_node["corr"] = "1"
-        # new_node.string = word
-        old_node["corr"] = "1"
-        old_node.string = word
-        # notepad = notepad.replace(str(old_node), str(new_node))
+        if old_node.has_attr("half"):
+            if old_node["half"] == "2":
+                # we do not correct the second half
+                return
+            if old_node.has_attr("full"):
+                    # first let's find the other half
+                next_node_id = old_node["id"] + 1
+                next_node = soup.find("span", {"id": next_node_id})
+                if not next_node:
+                    return
+                old_node["full"] = word
+                old_node["corr"] = "1"
+                next_node["corr"] = "1"
+                half_cut = len(old_node.text)
+                old_node.string = word[0:half_cut]
+                next_node.string = word[half_cut:]
+
+        else:
+            old_node["corr"] = "1"
+            # if word has dot or comma at the end, keep it
+            if old_node.string[-1] in [',', '.']:
+                old_node.string = word + old_node.string[-1]
+            else:
+                old_node.string = word
+            # notepad = notepad.replace(str(old_node), str(new_node))
 
     # return notepad
     return str(soup)

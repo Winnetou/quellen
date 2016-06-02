@@ -245,7 +245,7 @@ def update():
     # is_hand_corrected = request.form.get('word_id')
     # mvp shows only suggestions - no chance to edit manually
     is_hand_corrected = False
-    mess = "Received:{} {}, {}".format(correct_word.encode('utf-8'), page_id, word_id)
+    mess = "Received to update:{} {}, {}".format(correct_word.encode('utf-8'), page_id, word_id)
     logger.info(mess)
     save_corrected(correct_word, page_id, word_id, is_hand_corrected)
 
@@ -260,17 +260,19 @@ def divideorjoin():
     2. User clicks: 'join that word with next one'
     Flag 'action' will tell you which
     """
-
+    assert request.form.get('action') is not None
+    #import pdb; pdb.set_trace()
     dikt = {
         'page_id': request.form.get('page_id'),
         'word_id': request.form.get('word_id'),
         'word': request.form.get('word')
     }
-    mess = "Received:{} {}, {}".format(dikt['page_id'], dikt['word_id'], dikt['word'])
+    mess = "JD Received :{} {}, {}".format(dikt['page_id'], dikt['word_id'], dikt['word'].encode('utf-8'))
+    print mess
     logger.info(mess)
-    if request.args.get('action') == 'divide':
+    if request.form.get('action') == 'divide':
         divide_word(dikt)
-    elif request.args.get('action') == 'join':
+    elif request.form.get('action') == 'join':
         # for mvp, we join word with the next one only
         join_words(dikt)
 
