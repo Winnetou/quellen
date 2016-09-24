@@ -1,10 +1,13 @@
 # db_access.py - operations on the db
 import logging
+
 from copy import deepcopy
 from bs4 import BeautifulSoup
 from pymongo import MongoClient
 from datetime import datetime
 from deep_backend import clean, replace_node
+from smart_suggest import smart_suggest
+
 
 client = MongoClient()
 manu_tironis = client['manu_tironis']
@@ -19,22 +22,38 @@ def get_all_words():
     '''
     Returns all words as a list
     '''
-    words = list(manu_tironis.words.find({}, {"word": 1}).distinct("word"))
+    # oldwords = list(manu_tironis.words.find({}, {"word": 1}).distinct("word"))
+    words = manu_tironis.all_words.find_one()['words']
     return words
 
 
+def give_suggestion(incorrect):
+
+    return smart_suggest(incorrect)
+
+
 def save_single_word(word):
-    """Saves a word to the database
+    """
+    Saves a word to the database
     if it is not there yet
     """
     # first - if word is already there, leave it
     word = clean(word)
+    # FIXME
+    # there must be a way to do that in smarter way mongo
+    # maybe upsert ?
     all_lower_words = [x.lower() for x in get_all_words()]
     if word.lower() in all_lower_words:
         return
     # TODO - what shall we do about uppercase?
     document = {'word': word, "added": datetime.now()}
     manu_tironis.words.insert(document)
+    # uncomment me when ready
+    words = manu_tironis.all_words.find_one()
+    try:
+        manu_tironis.all_words.update_one({'_id':words['_id']}, {"$push":{"words":word}})
+    except:
+        manu_tironis.all_words.update({'_id':words['_id']}, {"$push":{"words":word}})
     return
 
 
@@ -117,7 +136,7 @@ def renumber_ids(final_text):
     return final_text
 
 
-def run_best_guess(correct_word, doc_id, word_id):
+def run_best_guess(correct_word, mistaken_word):
     """
     If the word was corrected (eg w0rd to word)
     it may a common OCR mistake
@@ -129,36 +148,37 @@ def run_best_guess(correct_word, doc_id, word_id):
     :param doc_id:  ObjectId(page_id)
     """
     # step 1 use correct_word, page_id, word_id to retrieve "old word"
-    #raise AssertionError("NOT YET TESTED")
-    record_to_correct = manu_tironis.lace_texts.find_one({"_id": doc_id})
-    notepad = record_to_correct['notepad']
-    soup = BeautifulSoup(notepad, 'html.parser')
-    node = soup.find("span", {"id": word_id})
-    if node.has_attr('full'):
-        old_word = node["full"]
-    else:
-        old_word = node.text
-    # make sure text has no trailing comma or dot
-    old_word = clean(old_word)
-    find_dict = {'notepad': {'$regex': old_word}}
+    # raise AssertionError("NOT YET TESTED")
+    mistaken_word = clean(mistaken_word)
+    find_dict = {'notepad': {'$regex': mistaken_word}}
     fields_dict = {'_id': 1, 'notepad': 1}
     all_to_be_updated = list(manu_tironis.lace_texts.find(find_dict, fields_dict))
 
     for document in all_to_be_updated:
         notepad = document['notepad']
+        page_id = document['_id']
         notepad_copy = notepad
         soup = BeautifulSoup(notepad, 'html.parser')
         greek_text = soup.find('span', "greek_text")
-        for node in greek_text.findAll("span", {"corr": "0"}):
-            # do not correct just half of the word
+        all_incorr = [n for n in greek_text.findAll("span", {"corr": "0"})]
+        pt1 = [n for n in all_incorr if n.text == mistaken_word]
+        pt2 = [n for n in all_incorr if n.has_attr('full') and n["full"] == mistaken_word]
+        to_be_corrected = pt1 + pt2
+        if not to_be_corrected:
+            return
+        import pdb; pdb.set_trace()
+        for node in to_be_corrected:
+            notepad_copy = replace_node(notepad_copy, correct_word, word_id=node["id"])
+            # TODO run me async
+        update_documents_notepad(page_id, notepad_copy)
+        '''
             if not node.has_attr('half'):
-                if clean(node.text) == correct_word:
-                    # test if that actually works!
-                    copy_node = deepcopy(node)
-                    copy_node.string = correct_word
-                    notepad_copy = notepad_copy.replace(unicode(node), unicode(copy_node))
+                new_notepad = replace_node(notepad, correct_word, word_id=word_id)
+                # TODO run me async
+                update_documents_notepad(page_id, new_notepad)
             else:
-                # correct only full
+                # KURWA MAC! replace_node deals with that shit
+                # even f=if node is half or full!
                 if node.has_attr('full'):
                     if clean(node["full"]) == correct_word:
                         second_half_id = int(node["id"]) + 1
@@ -173,4 +193,32 @@ def run_best_guess(correct_word, doc_id, word_id):
         if notepad != notepad_copy:
             doc_id = document['_id']
             update_documents_notepad(doc_id, notepad_copy)
+            '''
     return
+
+def get_word(notepad, word_id):
+    """
+    Take notepad, return word with given word_id
+    """
+    # FIXME move to helpers
+    soup = BeautifulSoup(notepad, 'html.parser')
+    node = soup.find("span", {"id": word_id})
+    if node.has_attr('full'):
+        return node["full"]
+    else:
+        return node.text
+
+
+def delete_node(doc_id, node_id):
+    """
+    Remove node altogether
+    """
+    # FIXME
+    # ALREADY IN PSQL
+    record_to_correct = manu_tironis.lace_texts.find_one({'_id': doc_id})
+    notepad = record_to_correct['notepad']
+    soup = BeautifulSoup(notepad, 'html.parser')
+    node = soup.find("span", {"id": node_id})
+    new_notepad = notepad.replace(unicode(node), "")
+    doc_id = record_to_correct['_id']
+    update_documents_notepad(doc_id, new_notepad)

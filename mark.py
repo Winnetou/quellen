@@ -1,16 +1,17 @@
 # all the logic that stands behind /mark url
 import logging
-from bson.objectid import ObjectId
 from bs4 import BeautifulSoup
-from pymongo import MongoClient
-from deep_backend import clean, is_marginalia
-from db_access import save_single_word, update_really_all_texts, update_documents_notepad
+# from pymongo import MongoClient
+# from deep_backend import clean, is_marginalia
+from psql_manu_tironis import get_single_record
+from psql_tasks import save_single_word, update_really_all_texts, async_update_documents_notepad
 from datetime import datetime as dt
-
+from helpers import clean, is_marginalia, token_is_first_in_line
+'''
 client = MongoClient()
 manu_tironis = client['manu_tironis']
 lace_texts = manu_tironis.lace_texts
-
+'''
 logging.basicConfig(filename='db_access_logger.log', level=logging.DEBUG)
 
 # Get an instance of a logger
@@ -21,9 +22,8 @@ def mark_save(as_what, doc_id, word_id):
     """
     POST to url /mark - callback to one of the :func: defined below
     """
-    doc_id = ObjectId(doc_id)
     logger.info("{}  mark :: args:{}-{}-{}".format(dt.now(), as_what, doc_id, word_id))
-    #print "{}  mark :: args:{}-{}-{}".format(dt.now(), as_what, doc_id, str(word_id))
+    # print "{}  mark :: args:{}-{}-{}".format(dt.now(), as_what, doc_id, str(word_id))
 
     if as_what == "correct":
         mark_as_correct(doc_id=doc_id, word_id=word_id)
@@ -44,9 +44,10 @@ def mark_as_correct(doc_id, word_id):
     word itself is not needed - we check it and if its marginalia, we just set to corr=1
     else we save it to db
     '''
-    #print "mark_as_correct", doc_id, word_id
-    record_to_correct = lace_texts.find_one({"_id": doc_id})
-    notepad = record_to_correct['notepad']
+    # print "mark_as_correct", doc_id, word_id
+    # record_to_correct = lace_texts.find_one({"_id": doc_id})
+    # notepad = record_to_correct['notepad']
+    notepad = get_single_record(doc_id)
     soup = BeautifulSoup(notepad, 'html.parser')
     node = soup.find("span", {"id": word_id})
     if node.has_attr('full'):
@@ -69,8 +70,8 @@ def mark_as_correct(doc_id, word_id):
     # the most important - it is a word, we will keep it
     # because it's not yet in the db
     else:
-        save_single_word(text)
-        update_really_all_texts(text)
+        save_single_word.delay(text)
+        update_really_all_texts.delay(text)
         return
 
 
@@ -78,38 +79,31 @@ def mark_as(as_what, doc_id, word_id):
     '''
     :param as_what - 0 or 1
     '''
-    record_to_correct = lace_texts.find_one({'_id': doc_id})
-    notepad = record_to_correct['notepad']
+    # record_to_correct = lace_texts.find_one({'_id': doc_id})
+    # notepad = record_to_correct['notepad']
+    notepad = get_single_record(doc_id)
     soup = BeautifulSoup(notepad, 'html.parser')
     node = soup.find("span", {"id": word_id})
     node['corr'] = as_what
-    new_notepad = str(soup)
-    update_documents_notepad(record_to_correct['_id'], new_notepad)
+    new_notepad = unicode(soup)
+    async_update_documents_notepad.delay(doc_id, new_notepad)
 
     return
 
 
-def add_pagination_class(doc_id, word_id):
-    record_to_correct = lace_texts.find_one({'_id': doc_id})
-    notepad = record_to_correct['notepad']
+def add_pagination_class(doc_id, node_id):
+    '''Chleb i syr'''
+    # record_to_correct = lace_texts.find_one({'_id': doc_id})
+    # notepad = record_to_correct['notepad']
+    notepad = get_single_record(doc_id)
     soup = BeautifulSoup(notepad, 'html.parser')
-    lines = soup.findAll('span', 'ocr_line')
-    # find the line where the word is -
-    for line in lines:
-        if line.find("span", {"id": word_id}):
-            that_line = line
-            break
-    node = that_line.find("span", {"id": word_id})
-    if len(line) == 1:
-        # for now - we can only say that we don't know
-        # later we can check page_number even or odd
-        # and if node.text in [5, 10, 15, 20]
-        return
-    if that_line.index(node) == 0:
-        node['class'] = "side_pagination left"
-    elif that_line[::-1].index(node) == 0:
-        node['class'] = "side_pagination right"
-    new_notepad = str(soup)
-    update_documents_notepad(record_to_correct['_id'], new_notepad)
+    # FIXME - use newly created is_last_in_line functions!
+    node = soup.find("span", {"id": node_id})
+    if token_is_first_in_line(doc_id, node_id):
+        node["class"] = "side_pagination left"
+    else:
+        node["class"] = "side_pagination right"
+    new_notepad = unicode(soup)
+    async_update_documents_notepad.delay(doc_id, new_notepad)
 
     return

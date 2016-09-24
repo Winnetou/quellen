@@ -1,18 +1,20 @@
 import logging
-from bson.objectid import ObjectId  # needed to find by _id
-from bson.errors import InvalidId
 from collections import defaultdict
 from datetime import datetime as dt
 from flask import Flask, request, jsonify, render_template, abort, Response
-from Levenshtein import ratio
-from pymongo import MongoClient
 
-from db_access import get_all_words
 from join_divide import join_words, divide_word
 from mark import mark_save
 from update import save_corrected
-
-#logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+from psql_quellen import (psql_get_quotes, get_single_quote,
+                          psql_get_distinct_authors, psql_get_authors_titles,
+                          psql_to_file, psql_get_about_data,
+                          psql_get_library_list, psql_get_library_text,
+                          psql_get_authors_and_titles_for_one_title)
+from psql_manu_tironis import (get_just_titles, get_page,
+                                )
+from smart_suggest import smart_suggest
+# logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 logging.basicConfig(filename='db_access_logger.log', level=logging.DEBUG)
 
 # Get an instance of a logger
@@ -27,11 +29,9 @@ app.config.update(
 app.config.from_object(__name__)
 app.config.from_envvar("QUELLEN_SETTINGS", silent=True)
 
-con = MongoClient()
-mongo = con["quellen"]
-tironis = con['manu_tironis']
-
-WORDS = get_all_words()
+# con = MongoClient()
+# mongo = con["quellen"]
+# tironis = con['manu_tironis']
 
 
 def is_greek(s):
@@ -47,7 +47,9 @@ def main():
     ''' Main page: displays all authors in a list nested in the nav,
     from a defaultdict mapping letters of alphabet to lists of
     authors beggining with that letter '''
-    authors = querydistinct({}, {}, "author_1", "author_2")
+    #authors = querydistinct({}, {}, "author_1", "author_2")
+    # psql
+    authors = psql_get_distinct_authors()
     authorsdict = defaultdict(list)
     for author in authors:
         authorsdict[author[0]].append(author)  # first letter of auth's name
@@ -61,8 +63,8 @@ def titles():
     if not request.args:
         abort(404)
     author = request.args.get("author", "", type=unicode)
-    titles = querydistinct({"author_1": author},
-                           {"author_2": author}, "title_1", "title_2")
+    # titles = querydistinct({"author_1": author},{"author_2": author}, "title_1", "title_2")
+    titles = psql_get_authors_titles(author)
     return jsonify(result=titles)
 
 
@@ -71,12 +73,11 @@ def authors(author, title):
     ''' Returns all the authors for whose works there is at least
     one match for the given work TITLE of a given AUTHOR'''
 
-    querydict = {'$or': [{"author_1": author, "title_1": title},
-                         {"author_2": author, "title_2": title}]}
-    authortitles = mongo.quotes.aggregate([{'$match': querydict},
-                                           {"$group": {"_id": {"title_2": "$title_2", "author_2": "$author_2",
-                                                               "title_1": "$title_1", "author_1": "$author_1"}}}])
-    authortitles = [d["_id"] for d in authortitles["result"]]
+    # querydict = {'$or': [{"author_1": author, "title_1": title},
+    #                     {"author_2": author, "title_2": title}]}
+    # authortitles = mongo.quotes.aggregate([{'$match': querydict},{"$group": {"_id": {"title_2": "$title_2", "author_2": "$author_2", "title_1": "$title_1", "author_1": "$author_1"}}}])
+    # authortitles = [d["_id"] for d in authortitles["result"]]
+    authortitles = psql_get_authors_and_titles_for_one_title(author, title)
     # get just the dicts
     if not authortitles:
         abort(404)
@@ -90,7 +91,7 @@ def authors(author, title):
 @app.route('/download/<author>/<title>')
 def download(author, title):
     ''' return raw text file with results '''
-    ffile = to_file(author, title)
+    ffile = psql_to_file(author, title)
     return Response(ffile, mimetype='text/plain')
 
 
@@ -103,30 +104,35 @@ def quotes():
     author_2 = request.args.get("author_2", "", type=unicode)
     title_1 = request.args.get("title_1", "", type=unicode)
     title_2 = request.args.get("title_2", "", type=unicode)
-    querydic = {'author_1': author_1, 'title_1': title_1,
-                'author_2': author_2, 'title_2': title_2}
-    quotes = get_quotes(querydic)
+    # querydic = {'author_1': author_1, 'title_1': title_1,
+    #            'author_2': author_2, 'title_2': title_2}
+    # quotes = get_quotes(querydic)
+    # psql:
+    quotes = psql_get_quotes(author_1, title_1, author_2,title_2)
     return render_template("quotespartial.html", quotes=quotes)
 
 
-@app.route('/quote/<object_id>')
+@app.route('/quote/<int:object_id>')
 def quote(object_id):
     ''' returns single item plus a number of similar with regex search'''
 
-    try:
-        id_number = ObjectId(object_id)
-    except InvalidId:
-        abort(404)
-    quote = mongo.quotes.find_one({"_id": id_number})
+    # try:
+    #    id_number = ObjectId(object_id)
+    # except InvalidId:
+    #    abort(404)
+    # quote = mongo.quotes.find_one({"_id": id_number})
+
+    # similar_query = {"$or": [{"quote_1_unicode": quote["quote_1_unicode"]},
+    #                         {"quote_2_unicode": quote["quote_2_unicode"]},
+    #                         {"quote_1_unicode": {"$regex": quote["quote_1_unicode"]}},
+    #                         {"quote_2_unicode": {"$regex": quote["quote_2_unicode"]}}],
+    #                 "_id": {"$ne": ObjectId(object_id)}}
+    # similar = mongo.quotes.find(similar_query)
+    # TODO: SORTING! find some way to introduce order
+    # psql
+    quote, similar = get_single_quote(object_id)
     if quote is None:
         abort(404)
-    similar_query = {"$or": [{"quote_1_unicode": quote["quote_1_unicode"]},
-                             {"quote_2_unicode": quote["quote_2_unicode"]},
-                             {"quote_1_unicode": {"$regex": quote["quote_1_unicode"]}},
-                             {"quote_2_unicode": {"$regex": quote["quote_2_unicode"]}}],
-                     "_id": {"$ne": ObjectId(object_id)}}
-    similar = mongo.quotes.find(similar_query)
-    # TODO: SORTING! find some way to introduce order
     return render_template("quote.html", quote=quote, similar=similar)
 
 
@@ -148,14 +154,16 @@ def flag():
 @app.route('/library')
 def library():
     ''' Return list of authors whose works we have'''
-    authors = list(mongo.texts.find({}, {"author": 1, "title": 1}))
+    # authors = list(mongo.texts.find({}, {"author": 1, "title": 1}))
+    authors = psql_get_library_list()
     return render_template("library.html", authors=authors)
 
 
 @app.route('/text/<author>/<title>')
 def text(author, title):
     ''' Returns single text'''
-    text = mongo.texts.find_one({"author": author, "title": title})
+    # text = mongo.texts.find_one({"author": author, "title": title})
+    text = psql_get_library_text(author, title)
     if not text:
         abort(404)
     return render_template("text.html", text=text)
@@ -165,48 +173,36 @@ def text(author, title):
 def about():
     '''About page: returns few figures '''
 
-    data = {}
-    data['item_number'] = mongo.quotes.find().count()
-    data['author_number'] = len(querydistinct({}, {}, "author_1", "author_2"))
+    # data = {}
+    # data['item_number'] = mongo.quotes.find().count()
+    # data['author_number'] = len(querydistinct({}, {}, "author_1", "author_2"))
     # same as above: cant be done via map reduce,
     # since return value from map reduce cant be an array!
-    data["works_number"] = len(querydistinct({}, {}, "title_1", "title_2"))
+    # data["works_number"] = len(querydistinct({}, {}, "title_1", "title_2"))
+    data = psql_get_about_data()
     return render_template("about.html", q=data)
 
-# MANU TIRONIS SECTION
-
+############################################
+# # # # # # MANU TIRONIS SECTION # # # # # #
+############################################
 
 @app.route('/scriptorium')
 def scriptorium():
     '''scriptorium page: returns titles of
     works being transcribed'''
     # TODO - mve scriptorium and tiro to one link
-    titles = list(tironis.lace_texts.find({}, {'title': 1}).distinct('title'))
+    #titles = list(tironis.lace_texts.find({}, {'title': 1}).distinct('title'))
+    titles = get_just_titles()
     return render_template("scriptorium.html", titles=titles)
 
 
 @app.route('/tiro/<title>/<int:pagenumber>')
 def tiro(title, pagenumber):
-    # print "{}::{}".format(title, pagenumber)
-    needed_vals = {"_id": 1, "title": 1, "pagenumber": 1, "notepad": 1, "image_url": 1}
-    # TODO - next page and prev page
-    if pagenumber == 0:
-        page = tironis.lace_texts.find(
-            {"title": title}, needed_vals).sort("pagenumber",).limit(1)[0]
+    """shows single page"""
 
-    else:
-        page = tironis.lace_texts.find_one(
-            {"title": title, "pagenumber": pagenumber},
-            needed_vals)
+    page = get_page(title, pagenumber)
     if not page:
         abort(404)
-    if tironis.lace_texts.find_one(
-            {"title": title, "pagenumber": page["pagenumber"] - 1}):
-        page["next_page"] = page["pagenumber"] - 1
-    if tironis.lace_texts.find_one(
-            {"title": title, "pagenumber": page["pagenumber"] + 1}):
-        page["prev_page"] = page["pagenumber"] + 1
-    # return render_template("tiro.html", page=page)
     return render_template("tiro2.html", page=page)
 
 # AJAX SECTION
@@ -216,18 +212,8 @@ def tiro(title, pagenumber):
 def suggest():
     """ Ajax - receive incorrect form, suggest correction"""
     incorrect = unicode(request.args.get('word'))
-    vals = {}
-    for correct in WORDS:
-        ratjo = ratio(incorrect, correct)
-        if ratjo > 0.75:
-            vals[correct] = ratjo
-    #import pdb; pdb.set_trace()
-    if len(vals) > 5:
-        ratios = [v for v in reversed(sorted(vals.values()))][:5]
-
-        suggestions = {c: c for c, v in vals.iteritems() if v in ratios}
-    else:
-        suggestions = {c: c for c, v in vals.iteritems()}
+    # suggestions = give_suggestion(incorrect)
+    suggestions = smart_suggest(incorrect)
     return jsonify(suggestions)
 
 
@@ -240,14 +226,12 @@ def update():
     3. User clicked 'this word is NOT correct' AND corrected word manually
     """
     correct_word = request.form.get('correct_form')
-    page_id = request.form.get('page_id')
+    # page_id = ObjectId(request.form.get('page_id'))
+    page_id = int(request.form.get('page_id'))
     word_id = request.form.get('word_id')
-    # is_hand_corrected = request.form.get('word_id')
-    # mvp shows only suggestions - no chance to edit manually
-    is_hand_corrected = False
     mess = "Received to update:{} {}, {}".format(correct_word.encode('utf-8'), page_id, word_id)
     logger.info(mess)
-    save_corrected(correct_word, page_id, word_id, is_hand_corrected)
+    save_corrected(correct_word, page_id, word_id)
 
     return jsonify(result={'status': "OK"})
 
@@ -260,15 +244,13 @@ def divideorjoin():
     2. User clicks: 'join that word with next one'
     Flag 'action' will tell you which
     """
-    assert request.form.get('action') is not None
-    #import pdb; pdb.set_trace()
     dikt = {
-        'page_id': request.form.get('page_id'),
+        # 'page_id': ObjectId(request.form.get('page_id')),
+        'page_id': int(request.form.get('page_id')),
         'word_id': request.form.get('word_id'),
         'word': request.form.get('word')
     }
     mess = "JD Received :{} {}, {}".format(dikt['page_id'], dikt['word_id'], dikt['word'].encode('utf-8'))
-    print mess
     logger.info(mess)
     if request.form.get('action') == 'divide':
         divide_word(dikt)
@@ -288,10 +270,11 @@ def mark():
     Flag 'action' will tell you which way to go
     '''
     mark = request.form.get('mark')
-    doc_id = request.form.get('page_id')
+    #doc_id = ObjectId(request.form.get('page_id'))
+    doc_id = int(request.form.get('page_id'))
     word_id = request.form.get('word_id')
     # logger.info("{} - `mark` got :: args:{}-{}-{}".format(dt.now(), mark, doc_id, word_id))
-    print "{} - `mark` got :: args:{}-{}-{}".format(dt.now(), mark, doc_id, word_id)
+    #print "{} - `mark` got :: args:{}-{}-{}".format(dt.now(), mark, doc_id, word_id)
     try:
         mark_save(mark, doc_id, word_id)
         # print "{} - Success in `mark` :: args:{}-{}-{}".format(dt.now(), mark, doc_id, word_id)
@@ -305,13 +288,34 @@ def mark():
         return jsonify(result={'status': "ERROR"})
 
 
+@app.route("/remove", methods=['POST'])
+def remove():
+    '''
+    Remove token
+    '''
+    #doc_id = ObjectId(request.form.get('page_id'))
+    doc_id = int(request.form.get('page_id'))
+    word_id = request.form.get('word_id')
+    # logger.info("{} - `mark` got :: args:{}-{}-{}".format(dt.now(), mark, doc_id, word_id))
+    #print "{} - `mark` got :: args:{}-{}-{}".format(dt.now(), mark, doc_id, word_id)
+    try:
+        delete_node(doc_id, word_id)
+        # print "{} - Success in `mark` :: args:{}-{}-{}".format(dt.now(), mark, doc_id, word_id)
+        logger.info(
+            "{} - Success in `remove` :: args:{}-{}".format(doc_id, word_id))
+        return jsonify(result={'status': "OK"})
+    except Exception as err:
+        # print "{} -Error in `mark` :: args:{}-{}-{}".format(dt.now(), mark, doc_id, word_id)
+        logger.error(
+            "{} -Error {} in `remove` :: args:{}-{}".format(err, dt.now(), doc_id, word_id))
+        return jsonify(result={'status': "ERROR"})
+
 # END MANU TIRONIS
 
 
 @app.errorhandler(404)
 def page_not_found(error):
     ''' 404 '''
-
     return render_template("404.html"), 404
 
 
@@ -319,7 +323,9 @@ def page_not_found(error):
 
 
 def querydistinct(querydict_1, querydict_2, distinct_value_1, distinct_value_2):
-    ''' Returns list of distinct authors or titles/the fastest solution'''
+    ''' Returns list of distinct authors or titles/the fastest solution
+    :rtype: list
+    '''
 
     x = set(mongo.quotes.find(querydict_1).distinct(distinct_value_1))
     y = set(mongo.quotes.find(querydict_2).distinct(distinct_value_2))
@@ -339,26 +345,6 @@ def get_quotes(querydict):
     # reverse if author_1 is author_2
     return quotes
 
-
-def to_file(author, title):
-    ''' Returns quotes in a raw string format'''
-
-    querydic = {'author_1': author, 'title_1': title}
-    quotes = get_quotes(querydic)
-    result = "Results for " + quotes[0]["author_1"]\
-        + ", " + quotes[0]["title_1"] + "\n"
-    result += " - " * 30 + "\n"
-    for record in quotes:
-        result += record["author_1"] + ", "
-        result += record["title_1"] + ": "
-        result += record["quote_1_unicode"]
-        result += "\n"
-        result += record["author_2"] + ", "
-        result += record["title_2"] + ": "
-        result += record["quote_2_unicode"]
-        result += "\n"
-        result += " - " * 30 + "\n"
-    return result
 
 
 def reverse(dictionary):
