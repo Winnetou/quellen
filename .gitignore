@@ -9,3 +9,6 @@ static/jquery-ui.js
 static/jquery-ui.css
 quellen.pyc
 *.pyc
+*.txt
+*.log
+run_gunicorn.sh
