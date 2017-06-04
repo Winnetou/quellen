@@ -1,0 +1,21 @@
+{% extends 'base.html' %}
+{% block body %}
+<h2>
+{{text["author"]}}
+<br>
+{{text["title"]}}
+</h2>
+<h3>
+{{text["edition"]}}
+</h3>
+<br>
+<p class="greek">
+{% for x in text["text"].split("\n") %}
+
+{{x}}
+<br>
+{% endfor %}
+</p>
+{% endblock %}
+
+

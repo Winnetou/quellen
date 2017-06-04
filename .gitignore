@@ -1,13 +1,6 @@
-static
-templates
+static/img
+static/.idea
 *.pyc
-static/GFSBodoniClassic.otf
-static/GFSPolyglot.otf
-static/IMFeENsc28P.ttf
-static/jquery.js
-static/jquery-ui.js
-static/jquery-ui.css
-quellen.pyc
 *.pyc
 *.txt
 *.log

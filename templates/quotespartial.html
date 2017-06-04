@@ -1,0 +1,51 @@
+{% block body %}
+{% for q in quotes %}
+<tr>
+<td>
+	<p class="caput">
+		{% if  q["author_1"] !=q["title_1"]%}
+        	{{q["author_1"]}},
+		{% endif %}
+
+                {% if q["title_1"]|is_greek %}
+                    <span class="title greek">{{ q["title_1"] }} {{ q["locum_1"] }}</span>
+	        {% else %}
+                    <span class="title">{{q["title_1"]}} {{ q["locum_1"] }}</span>
+                 {% endif %}
+
+        </p>
+</td>
+
+<td>
+	<p class="caput">
+		{% if  q["author_2"] !=q["title_2"]%}
+		{{q["author_2"] }},
+		{% endif %}
+
+                {% if q["title_2"]|is_greek %}
+                    <span class="title greek">{{ q["title_2"] }} {{ q["locum_2"] }}</span>
+	        {% else %}
+                    <span class="title">{{q["title_2"]}} {{ q["locum_2"] }}</span>
+                 {% endif %}
+
+	</p>
+</td>
+</tr>
+
+<tr class="main">
+	<td>
+		<p class="greek">
+  			{{q["quote_1_unicode"]}}
+		</p>
+	</td>
+
+	<td>
+		<p class="greek">
+  			{{q["quote_2_unicode"]}}
+		</p>
+		<span class="meta"> <a href={{url_for('quote', object_id=q["id"])}}>< More > </a> <span>
+	</td>
+
+</tr>
+{% endfor %}
+{% endblock %}

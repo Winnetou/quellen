@@ -1,0 +1,173 @@
+{% extends 'base.html' %}
+{% block body %}
+<table>
+<tr>
+<td>
+<p class="caput">
+{% if  quote["author_1"] !=quote["title_1"]%}
+        {{quote["author_1"]}},
+{% endif %}
+
+{% if  quote["title_1"]|is_greek %}
+        <span class="title greek">{{ quote["title_1"] }} {{ quote["locum_1"] }}</span>
+{% else %}
+        <span class="title">{{ quote["title_1"] }} {{ quote["locum_1"] }}</span>
+{% endif %}
+</p>
+</td>
+
+
+<td>
+	<p class="caput">
+{% if  quote["author_2"] !=quote["title_2"]%}
+{{quote["author_2"]}},
+{% endif %}
+
+{% if  quote["title_1"]|is_greek %}
+        <span class="title greek">{{ quote["title_2"] }} {{ quote["locum_2"] }}</span>
+{% else %}
+        <span class="title">{{ quote["title_2"] }} {{ quote["locum_2"] }}</span>
+{% endif %}
+</p>
+
+</td>
+</tr>
+
+
+<tr>
+	<td>
+<p class="greek">
+  {{quote["quote_1_unicode"]}}
+</p>
+
+	</td>
+	<td>
+<p class="greek">
+  {{    quote["quote_2_unicode"]}}
+</p>
+
+	</td>
+</tr>
+
+<tr class="main">
+	<td>
+
+
+	<span class="left">
+		< Interesting: 	<span id="interesting">{{ quote["interesting"]|default("No")}}</span>  votes >
+	</span>
+
+	<span class="left">
+		<a class="flag" name="interesting" href="">< Flag as interesting ></a>
+	</span>
+
+	</td>
+	<td>
+
+	<span class="right">
+		<a class="flag" name="trivial" href="">< Flag as trivial ></a>
+	</span>
+
+	<span class="right">
+		< Trivial: <span id="trivial">{{quote["trivial"]|default("No")}}</span> votes >
+	</span>
+	</td>
+</tr>
+</table>
+
+
+<h2> SIMILAR </h2>
+
+{% if not similar[0]%}
+<p style="text-align:center"> - - - Nothing found - - - </p>
+{% else %}
+<table>
+
+{% for q in similar %}
+
+<tr>
+<td>
+	<p class="caput">
+		{% if  q["author_1"] !=q["title_1"]%}
+        	{{q["author_1"]}},
+		{% endif %}
+                {% if  quote["title_1"]|is_greek %}
+                 <span class="title greek">{{ quote["title_1"] }} {{ quote["locum_1"] }}</span>
+                {% else %}
+                <span class="title">{{ quote["title_1"] }} {{ quote["locum_1"] }}</span>
+                {% endif %}
+	</p>
+</td>
+
+<td>
+	<p class="caput">
+		{% if  q["author_2"] !=q["title_2"]%}
+		{{q["author_2"] }},
+		{% endif %}
+                {% if  quote["title_2"]|is_greek %}
+                <span class="title greek">{{ quote["title_2"] }} {{ quote["locum_2"] }}</span>
+                {% else %}
+                <span class="title">{{ quote["title_2"] }} {{ quote["locum_2"] }}</span>
+                {% endif %}
+	</p>
+</td>
+</tr>
+
+<tr class="main">
+	<td>
+		<p class="greek">
+  			{{q["quote_1_unicode"]}}
+		</p>
+	</td>
+
+	<td>
+		<p class="greek">
+  			{{q["quote_2_unicode"]}}
+		</p>
+		<span class="meta"> <a href={{url_for('quote',object_id = q["id"])}}>< More > </a> <span>
+	</td>
+
+</tr>
+{% endfor %}
+
+
+
+</table>
+
+{% endif %}
+
+{% endblock %}
+
+
+
+{% block scripts %}
+<script>
+$SCRIPT_ROOT = {{ request.script_root|tojson|safe }};
+
+$(document).ready(function() {
+    $("a.flag").bind('click', function()
+    {
+        var value =  $(this).attr("name");
+        var object_id = "{{quote["id"]}}";
+        if ( $(this).hasClass("disabled") )    //if has class disabled - no  click allowed again!
+            {
+                return false;
+            }
+        else //if not yet clicked
+        {
+        $.getJSON($SCRIPT_ROOT + '/flag', {
+            value: value,
+            object_id: object_id,
+            }, function(data) {
+            	var id = "span[id='"+value+"']";
+                $(id).text(data.result ); //change the value presented on the website
+        		$("a.flag").addClass("disabled");	//disable both!
+                $("a.flag").text("< Flagged >")
+        });
+        return false;
+    }
+
+        });
+    });
+</script>
+{% endblock %}

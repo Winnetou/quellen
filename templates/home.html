@@ -1,0 +1,109 @@
+{% extends 'base.html' %}
+
+{% block body %}
+
+<nav >
+    <ul class="nav sec">
+        <li><a href={{url_for('about')}}> < About > </a></li>
+        <li><a href={{url_for('library')}}> < Library > </a></li>
+        <li><a href={{url_for('scriptorium')}}> < Scriptorium > </a></li>
+    </ul>
+</nav>
+
+<nav id="tabs">
+    <ul class="nav">
+        {% for letter in authors|dictsort %}
+        <li>
+        <a href="#letter-{{letter[0]}}">{{letter[0]}}</a>
+        </li>
+        {% endfor %}
+    </ul>
+
+    {% for letter in authors %}
+        <div id="letter-{{letter}}" >
+            <ul class="titles">
+            {% for author in authors[letter]%}
+            <li>
+                <a class="titles" href="{{author}}" >< {{author}} ></a>
+                <ul id="{{author}}" style="display:none" data="0"></ul>
+            </li>
+            {% endfor %}
+        </ul>
+        </div>
+    {% endfor %}
+
+</nav>
+
+{% endblock %}
+
+
+{% block scripts %}
+<script>
+$SCRIPT_ROOT = {{ request.script_root|tojson|safe }};
+function is_greek(value)
+{
+    if (/[a-zA-Z]/.test(value))
+    {
+        return false;
+    }
+    else
+    {
+        return true;
+    }
+}
+$(document).ready(function() {
+    $("#tabs").tabs();
+    $("h1").addClass('header');
+    });
+
+
+    $(function() {
+    $('a.titles').bind('click', function()
+    {
+        var author =  $(this).attr("href");
+        var id = "ul[id='"+author+"']";
+        if(!$(id).is(":hidden"))
+        {
+            $(id).hide('fast');
+            return false;
+
+        }
+        else
+        {
+
+        if ( $(id).attr("data")==1 )    //if content already loaded dont load again
+            {
+                $(id).show('fast');
+                return false;
+            }
+        else //if content not loaded
+        {
+        $(id).attr("data", "1");
+        $.getJSON($SCRIPT_ROOT + '/titles', {
+            author: author,
+            }, function(data) {
+                var items = []; //empty array for values
+                $.each(data, function(i, item) {
+                    $.each(this, function(k, value) {
+                        if (is_greek(value))
+                        {
+                        items.push('<li><a href="/authors/'+author + "/"+value + '">' +' >> <span class ="greek">'+ value + '</span></a></li>');
+                        }
+                        else
+                        {
+                        items.push('<li><a href="/authors/'+author + "/"+value + '">' +" >> "+ value + '</a></li>');
+                        }
+                    });
+
+           });  // close each()
+        $(id).append( items.join('')); //then all li's to that ul
+        $(id).slideDown('fast');
+
+        });
+        return false;
+    }
+    }
+        });
+    });
+</script>
+{% endblock %}

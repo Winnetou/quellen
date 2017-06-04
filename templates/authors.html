@@ -1,0 +1,91 @@
+{% extends 'base.html' %}
+{% block body %}
+<nav>
+    <ul class="nav sec">
+    <li> < {{ authorstitles|length }} works found ></li>  
+    <li>
+        <a href={{url_for('download' , author = authorstitles[0]["author_1"], title=authorstitles[0]["title_1"])}} >
+            < Download all results >
+        </a> 
+    </li>
+    </ul>
+</p>
+</nav>
+
+<ul class="quoteslist">
+{% for q in authorstitles %}
+		<li >
+                
+        	<a class="titles" href="" >
+                < 
+                {% if  q["author_2"] !=q["title_2"]%}
+                    {{q["author_2"] }}, 
+                {% endif %}
+            {% if q["title_2"]|is_greek %}
+                <span class="title greek">{{q["title_2"]}}</span> >  
+            {% else %}
+                <span class="title">{{q["title_2"]}}</span> >
+            {%  endif %}
+            </a>
+            <table id="{{q["author_1"]}}|{{q["title_1"]}}|{{q["author_2"]}}|{{q["title_2"]}}" style="display:none"></table>
+        </li>
+
+{% endfor %}
+</ul>
+
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+$SCRIPT_ROOT = {{ request.script_root|tojson|safe }};
+
+$(document).ready(function() {
+
+    $('a.titles').bind('click', function() 
+    { 
+        var author =  $(this).siblings("table").attr("id");
+        var id = "table[id='"+author+"']";           
+        if(!$(id).is(":hidden"))
+        { 
+            $(id).hide('fast');
+            return false;
+        }
+        else
+        {
+         if ( $(id).children().length>0 )    //if content already loaded dont load again
+            {
+                $(id).show('slow');
+                return false;
+            }
+        else //if content not loaded
+        {
+            //$(this).text($(this).text().replace(">",""));
+            
+        var data = author.split('|');
+        $.ajax({
+            url: $SCRIPT_ROOT + '/quotes', 
+            data: {author_1: data[0],
+            title_1: data[1],
+            author_2: data[2],
+            title_2: data[3]},
+            success: function(html_data){
+                $(id).html(html_data);
+                $(id).show('slow');
+                 
+            }
+        });
+        return false;
+    }
+    }
+        });
+
+    $('body').on('hover','tr',function(){
+     //$(this).css('color','red');
+     
+     //$(this).closest('tr').prop("visibility", "visible");  
+}); 
+    });
+</script>
+{% endblock %}
+

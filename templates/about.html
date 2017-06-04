@@ -1,0 +1,39 @@
+{% extends 'base.html' %}
+
+{% block body %}
+<p class="intro header">
+	The Quellenforschung database contains {{q['item_number']}} computer-detected quotations in {{q['works_number']}} Greek literary works by
+	{{q['author_number']}} authors.
+	<br> Most text processed come from the following websites: <a href="http://www.perseus.tufts.edu"> Perseus Project</a>, <a href="http://heml.mta.ca/lace/">Lace</a>, <a href="http://el.wikisource.org/wiki/"> Wikisource</a>, <a href="http://www.astrologicon.org/">astrologicon.org</a>,
+	<a href="http://www.patrologia-lib.ru">patrologia-lib.ru</a>,  <a href="http://www.users.uoa.gr/~nektar/">Nektar</a> and
+	<a href="http://www.hs-augsburg.de/~harsch/augustana.html">Bibliotheca Augustana.</a>
+	<br> Several texts were OCR-ed and digitized as a part of the project and are available in our <a href="/library">small but growing library,</a>
+	together with some spell-checked OCR-outputs from the Lace project.
+	<br>
+	The algorithm employed in the search is simple and effective, yet it has certain limitations: it only detects matches between two texts, and it is blind to the content of the overlaping fragments. Therefore users are encouraged to flag every record from the database as either trivial (i.e. not a genuine quotation, but an accidental similarity in wording or a common phrase <a href="/quote/543a66341d41c83413a78910">=> example</a>) or interesting (i.e. quotation is not just genuine, but interesting from the scholarly perspective <a href="/quote/540b77b91d41c869c4c9f09b">=> example</a>) in order to separate the wheat from the chaff.
+	Our algorithm can't establish the origin of a given quotation, hence it records matches in two works originating from a third work .
+	<br>
+
+	All content is licensed under
+	<a href="http://creativecommons.org/licenses/by-sa/3.0/deed.en_US" rel="license">
+    Creative Commons Attribution-ShareAlike 3.0
+	</a>  License.
+
+	<span class="right">
+		<a rel="license" href="http://creativecommons.org/licenses/by-sa/3.0/deed.en_US"><img alt="Creative Commons License" style="border-width:0" src="http://i.creativecommons.org/l/by-sa/3.0/80x15.png"></a>
+	</span>
+</p>
+
+
+
+{% endblock %}
+
+
+
+{% block scripts %}
+<script>
+
+$(document).ready(function() {
+    });
+</script>
+{% endblock %}
